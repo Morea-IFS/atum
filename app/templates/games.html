@@ -8,78 +8,75 @@
 {% endblock head %}
 
 {% block content %}
-<div class="all-block">
+<div class="all-block match-page">
     <div class="block1">
         <div class="title-adm">
             <h1>GERENCIAMENTO DE PARTIDAS</h1>
-            {% if perms.app.add_match or perms.app.add_phase or perms.app.add_group_phase %}
             <div class="title-buttons">
-                {% if select_event or user.event_user %}
-                <span onclick="openOptionsModal()"><p>Novo</p></span>
+                {% if select_event %}
+                {% if perms.app.add_match or perms.app.add_phase or perms.app.add_group_phase %}
+                <button class="match-primary" type="button" onclick="openOptionsModal()">Novo</button>
                 {% endif %}
-                {% if user.type == 0 %}
-                <form method="get">
-                    <select name="e" onchange="this.form.submit();">
-                        <option value="">Evento</option>
+                {% endif %}
+                <form method="get" class="event-picker">
+                    <label for="event-filter">Evento</label>
+                    <select id="event-filter" name="e" onchange="this.form.submit();">
+                        <option value="">Selecione um evento</option>
                         {% for i in events %}
-                            <option value="{{ i.id }}" {% if select_event|stringformat:"s" == i.id|stringformat:"s" %}selected{% endif %}>{{ i.name }}</option>
+                        <option value="{{ i.id }}" {% if select_event|stringformat:"s" == i.id|stringformat:"s" %}selected{% endif %}>{{ i.name }}</option>
                         {% endfor %}
                     </select>
+                    <noscript><button type="submit">Selecionar</button></noscript>
                 </form>
-                {% else %}
-                <h3>{{ user.event_user.name }}</h3>
-                {% endif %}
-                {% if not select_event and not user.event_user %}
-                <h2>ADMIN</h2>
-                {% endif %}
             </div>
-            {% endif %}
         </div>
 
         <!-- ================== FILTRO ================== -->
         <div class="filter-container" {% if not select_event %} style="display: none;" {% endif %}>
-          <button class="filter-toggle" onclick="toggleFilterMenu()">
+          <button type="button" aria-controls="filterMenu" aria-expanded="false" class="filter-toggle" onclick="toggleFilterMenu()">
             <i class="fa-solid fa-filter"></i> Filtros
           </button>
 
-          <div class="filter-menu" id="filterMenu">
+          <form method="get" class="filter-menu" id="filterMenu">
+            <input type="hidden" name="e" value="{{ select_event }}">
+            <label>Pesquisar por equipe, local ou ID <input type="search" name="q" value="{{ filters.q }}"></label>
             <div class="filter-section">
-              <button type="button" class="filter-category" onclick="toggleSubmenu('sport')">
+              <button type="button" class="filter-category" aria-controls="submenu-sport" aria-expanded="false" onclick="toggleSubmenu('sport')">
                   <i class="fa-solid fa-futbol"></i> Esporte
               </button>
               <div class="filter-submenu" id="submenu-sport">
-                  <select name="sport">
+                  <select name="sport" aria-label="Filtrar por esporte">
                       <option value="">Todos os Esportes</option>
                       {% for i in event_sports %}
-                      <option value="{{i.sport}}">{{i.get_sport_display}}</option>
+                      <option value="{{i.sport}}" {% if filters.sport == i.sport|stringformat:"s" %}selected{% endif %}>{{i.get_sport_display}}</option>
                       {% endfor %}
                   </select>
               </div>
             </div>
 
             <div class="filter-section">
-              <button type="button" class="filter-category" onclick="toggleSubmenu('sexo')">
+              <button type="button" class="filter-category" aria-controls="submenu-sexo" aria-expanded="false" onclick="toggleSubmenu('sexo')">
                   <i class="fa-solid fa-venus-mars"></i> Sexo
               </button>
               <div class="filter-submenu" id="submenu-sexo">
-                  <select name="genre">
+                  <select name="genre" aria-label="Filtrar por categoria">
                     <option value="">Todos</option>
                     {% for i,j in sexo %}
-                    <option value="{{i}}">{{j}}</option>
+                    <option value="{{i}}" {% if filters.genre == i|stringformat:"s" %}selected{% endif %}>{{j}}</option>
                     {% endfor %}
                   </select>
               </div>
             </div>
 
             <div class="filter-section">
-              <button type="button" class="filter-category" onclick="toggleSubmenu('turma')">
+              <button type="button" class="filter-category" aria-controls="submenu-turma" aria-expanded="false" onclick="toggleSubmenu('turma')">
                   <i class="fa-solid fa-users"></i> Times
               </button>
               <div class="filter-submenu" id="submenu-turma">
-                  <select name="team">
+                  <select name="team" aria-label="Filtrar por equipe">
                     <option value="">Todos</option>
                     {% for i in teams %}
-                    <option value="{{i.id}}">{{i.name}}</option>
+                    <option value="{{i.id}}" {% if filters.team == i.id|stringformat:"s" %}selected{% endif %}>{{i.name}}</option>
                     {% endfor %}
                   </select>
               </div>
@@ -90,12 +87,12 @@
                     <i class="fa-solid fa-check"></i>
                     <span>Aplicar</span>
                 </button>
-                <a href="" class="btn-clear">
+                <a href="{% url 'games' %}?e={{ select_event }}" class="btn-clear">
                     <i class="fa-solid fa-rotate-right"></i>
                     <span>Limpar</span>
                 </a>
             </div>
-          </div>
+          </form>
         </div>
 
 
@@ -183,7 +180,7 @@
                     <i class="fa-solid fa-circle-exclamation"></i> 
                 </div>
                 <div class="alert-text">
-                    <p>NÃO HÁ NENHUMA PARTIDA PROGRAMADA.</p>
+                    <p>{% if not select_event %}Selecione um evento para visualizar as partidas.{% else %}Nenhuma partida encontrada para este evento e os filtros selecionados.{% endif %}</p>
                 </div>
             </section>
             {% endfor %}
@@ -194,7 +191,7 @@
 {% if perms.app.add_match or perms.app.add_phase or perms.app.add_group_phase %}
 
 <!-- ================= MODAL DE OPÇÕES ================= -->
-<div id="optionsModal" class="modal">
+<div id="optionsModal" class="modal match-dialog">
   <div class="modal-content" style="max-width: 400px; text-align:center;">
     <span class="close" onclick="closeOptionsModal()">&times;</span>
     <h2>O que deseja criar?</h2>
@@ -223,14 +220,15 @@
 
 <!-- ================= MODAL PARTIDA ================= -->
 {% if perms.app.add_match %}
-<div id="modal-match" class="modal">
+<div id="modal-match" class="modal match-dialog">
     <div class="modal-content">
         <span class="close" onclick="closeModal('match')">&times;</span>
         <h2>Cadastrar partida</h2>
-        <form method="post" enctype="multipart/form-data">
+        <form method="post" action="{% url 'games' %}?e={{ select_event }}">
+        <input type="hidden" name="create_match" value="1">
         {% csrf_token %}
         <label for="sport">Esporte</label>
-        <select id="sport" name="sport">
+        <select id="sport" name="sport" required>
             <option selected disabled value="None">Selecione o esporte</option>
             {% for i in event_sports %}
             <option value="{{i.id}}">
@@ -245,7 +243,7 @@
         </select>
 
         <label for="sexo">Sexo</label>
-        <select id="sexo" name="sexo" disabled>
+        <select id="sexo" name="sexo" required disabled>
             <option selected disabled value="None">Selecione o sexo</option>
         </select>
 
@@ -258,11 +256,11 @@
         </div>
 
         <label for="location">Local</label>
-        <input type="text" id="location" name="location" placeholder="Informe o local" />
+        <input type="text" id="location" name="location" maxlength="100" placeholder="Informe o local" />
 
         <label for="date-game">Horário</label>
         <input class="input-data" type="datetime-local" name="datetime" id="date-game" />
-        <p style="color: #6d6c6c; font-size: 15px;">*Informe a data e horário da partida ou coloque o horário por ordem de partida.</p>
+        <p style="color: #6d6c6c; font-size: 15px;">Data e horário são opcionais. Se informados, devem estar dentro do período do evento. Selecione duas equipes inscritas na mesma modalidade e categoria. Fase/grupo é opcional.</p>
         <button type="submit">Cadastrar</button>
         </form>
     </div>
@@ -271,7 +269,7 @@
 
 <!-- ================= MODAL FASE ================= -->
 {% if perms.app.add_phase %}
-<div id="modal-phase" class="modal">
+<div id="modal-phase" class="modal match-dialog">
   <div class="modal-content">
     <span class="close" onclick="closeModal('phase')">&times;</span>
     <h2>Cadastrar Fase</h2>
@@ -287,7 +285,7 @@
       </select>
 
       <label for="sexo_phase">Sexo</label>
-      <select id="sexo_phase" name="sexo_phase" disabled>
+      <select id="sexo_phase" name="sexo_phase" required disabled>
           <option selected disabled value="None">Selecione o sexo</option>
       </select>
 
@@ -306,7 +304,7 @@
 
 <!-- ================= MODAL GRUPO ================= -->
 {% if perms.app.add_group_phase %}
-<div id="modal-group" class="modal">
+<div id="modal-group" class="modal match-dialog">
   <div class="modal-content">
     <span class="close" onclick="closeModal('group')">&times;</span>
     <h2>Cadastrar Grupo</h2>
@@ -322,7 +320,7 @@
       </select>
 
       <label>Nome do Grupo</label>
-      <input type="text" name="group_name" placeholder="Ex: Grupo A">
+      <input type="text" name="group_name" required maxlength="50" placeholder="Ex: Grupo A">
 
       <button type="submit">Cadastrar</button>
     </form>
@@ -338,96 +336,66 @@
   const timeBSelect = document.getElementById("time-b");
   const teamDiv = document.getElementById("team-selects");
 
-  // ---------- 1️⃣ Carregar sexos para o modal de FASE ----------
   const eventSportPhaseSelect = document.querySelector('#modal-phase select[name="event_sport"]');
   const sexoPhaseSelect = document.getElementById("sexo_phase");
+  const groupSelect = document.getElementById("group");
+  const revisions = {phase: 0, category: 0, teams: 0, groups: 0};
 
-  async function carregarSexosPhase() {
-    const sport = eventSportPhaseSelect.value;
-    if (sport && sport !== "None") {
-      const response = await fetch(`/get_sexos/?sport=${sport}`);
+  function resetSelect(select, label) {
+    select.replaceChildren(new Option(label, ''));
+    select.disabled = true;
+  }
+
+  async function loadOptions(key, url, apply, fail) {
+    const revision = ++revisions[key];
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Falha ao carregar opções');
       const data = await response.json();
+      if (revision === revisions[key]) apply(data);
+    } catch (error) {
+      if (revision === revisions[key]) fail();
+    }
+  }
 
-      sexoPhaseSelect.innerHTML = '<option selected disabled value="None">Selecione o sexo</option>';
-      data.sexos.forEach(s => {
-        const opt = document.createElement("option");
-        opt.value = s.value;
-        opt.textContent = s.label;
-        sexoPhaseSelect.appendChild(opt);
-      });
-
+  function carregarSexosPhase() {
+    resetSelect(sexoPhaseSelect, 'Selecione a categoria');
+    loadOptions('phase', `/get_sexos/?sport=${eventSportPhaseSelect.value}`, data => {
+      data.sexos.forEach(s => sexoPhaseSelect.add(new Option(s.label, s.value)));
       sexoPhaseSelect.disabled = false;
-    } else {
-      sexoPhaseSelect.innerHTML = '<option selected disabled value="None">Selecione o sexo</option>';
-      sexoPhaseSelect.disabled = true;
-    }
+    }, () => resetSelect(sexoPhaseSelect, 'Erro ao carregar. Selecione a modalidade novamente.'));
   }
+  eventSportPhaseSelect?.addEventListener('change', carregarSexosPhase);
 
-  if (eventSportPhaseSelect) {
-    eventSportPhaseSelect.addEventListener("change", carregarSexosPhase);
-  }
-
-  // ---------- 1️⃣ Carregar sexos disponíveis ao selecionar esporte ----------
-  async function carregarSexos() {
-    const sport = sportSelect.value;
-    if (sport && sport !== "None") {
-      const response = await fetch(`/get_sexos/?sport=${sport}`);
-      const data = await response.json();
-
-      // Limpa e preenche select de sexo
-      sexoSelect.innerHTML = '<option selected disabled value="None">Selecione o sexo</option>';
-      data.sexos.forEach(s => {
-        const opt = document.createElement("option");
-        opt.value = s.value;
-        opt.textContent = s.label;
-        sexoSelect.appendChild(opt);
-      });
-
+  function carregarSexos() {
+    ++revisions.teams;
+    ++revisions.groups;
+    teamDiv.style.display = 'none';
+    resetSelect(timeASelect, 'Selecione o time');
+    resetSelect(timeBSelect, 'Selecione o time');
+    resetSelect(groupSelect, 'Sem fase/grupo');
+    resetSelect(sexoSelect, 'Selecione a categoria');
+    loadOptions('category', `/get_sexos/?sport=${sportSelect.value}`, data => {
+      data.sexos.forEach(s => sexoSelect.add(new Option(s.label, s.value)));
       sexoSelect.disabled = false;
-      // Limpa e oculta selects de times
-      teamDiv.style.display = "none";
-      timeASelect.innerHTML = '';
-      timeBSelect.innerHTML = '';
-    } else {
-      sexoSelect.innerHTML = '<option selected disabled value="None">Selecione o sexo</option>';
-      sexoSelect.disabled = true;
-      teamDiv.style.display = "none";
-    }
+    }, () => resetSelect(sexoSelect, 'Erro ao carregar. Selecione a modalidade novamente.'));
   }
 
-  // ---------- 2️⃣ Carregar times disponíveis ao selecionar esporte + sexo ----------
-  async function carregarTimes() {
-    const sport = sportSelect.value;
-    const sexo = sexoSelect.value;
-
-    if (sport && sexo && sport !== "None" && sexo !== "None") {
-      const response = await fetch(`/get_teams/?sport=${sport}&sexo=${sexo}`);
-      const data = await response.json();
-      console.log(data)
-
-      // Limpa selects
-      timeASelect.innerHTML = '<option selected disabled value="None">Selecione o time</option>';
-      timeBSelect.innerHTML = '<option selected disabled value="None">Selecione o time</option>';
-
-      // Preenche selects com os times retornados
-      data.teams.forEach(team => {
-        const optA = document.createElement("option");
-        const optB = document.createElement("option");
-        optA.value = team.id;
-        optB.value = team.id;
-        optA.textContent = team.name;
-        optB.textContent = team.name;
-        timeASelect.appendChild(optA);
-        timeBSelect.appendChild(optB);
-      });
-
-      teamDiv.style.display = "block";
-    } else {
-      teamDiv.style.display = "none";
-    }
+  function carregarTimes() {
+    resetSelect(timeASelect, 'Carregando equipes...');
+    resetSelect(timeBSelect, 'Carregando equipes...');
+    teamDiv.style.display = 'block';
+    loadOptions('teams', `/get_teams/?sport=${sportSelect.value}&sexo=${sexoSelect.value}`, data => {
+      for (const select of [timeASelect, timeBSelect]) {
+        resetSelect(select, data.teams.length ? 'Selecione o time' : 'Nenhuma equipe inscrita');
+        data.teams.forEach(team => select.add(new Option(team.name, team.id)));
+        select.disabled = !data.teams.length;
+      }
+    }, () => {
+      resetSelect(timeASelect, 'Erro ao carregar. Selecione a categoria novamente.');
+      resetSelect(timeBSelect, 'Erro ao carregar. Selecione a categoria novamente.');
+    });
   }
-
-
 
   // ---------- 3️⃣ Evitar selecionar mesmo time em A e B ----------
   function atualizarOpcoesTimes() {
@@ -449,48 +417,27 @@
       }
     }
   }
-    const groupSelect = document.getElementById("group");
+  function carregarGrupos() {
+    resetSelect(groupSelect, 'Sem fase/grupo');
+    loadOptions('groups', `/get_groups/?sport=${sportSelect.value}&sexo=${sexoSelect.value}`, data => {
+      data.groups.forEach(g => groupSelect.add(new Option(`${g.phase_name} - ${g.sexo} | ${g.name}`, g.id)));
+      groupSelect.disabled = false;
+    }, () => resetSelect(groupSelect, 'Erro ao carregar. Selecione a categoria novamente.'));
+  }
+  sportSelect?.addEventListener('change', carregarSexos);
 
-    async function carregarGrupos() {
-        const sport = sportSelect.value;
-        if (sport && sport !== "None") {
-            const response = await fetch(`/get_groups/?sport=${sport}`);
-            const data = await response.json();
-
-            // Limpa o select
-            groupSelect.innerHTML = '<option selected disabled value="">Selecione a fase/grupo</option>';
-
-            // Preenche com os grupos retornados
-            data.groups.forEach(g => {
-                const opt = document.createElement("option");
-                opt.value = g.id;
-                opt.textContent = `${g.phase_name} - ${g.sexo} | ${g.name}`;
-                groupSelect.appendChild(opt);
-            });
-        } else {
-            groupSelect.innerHTML = '<option selected disabled value="">Selecione a fase/grupo</option>';
-        }
-    }
-  // ---------- 4️⃣ Event listeners ----------
-  sportSelect.addEventListener("change", () => {
-    carregarSexos();
-    // Limpa e esconde times
-    teamDiv.style.display = "none";
-    timeASelect.innerHTML = '';
-    timeBSelect.innerHTML = '';
-    carregarGrupos();
-  });
-
-  sexoSelect.addEventListener("change", carregarTimes);
-  timeASelect.addEventListener("change", atualizarOpcoesTimes);
-  timeBSelect.addEventListener("change", atualizarOpcoesTimes);
+  sexoSelect?.addEventListener("change", () => { carregarTimes(); carregarGrupos(); });
+  timeASelect?.addEventListener("change", atualizarOpcoesTimes);
+  timeBSelect?.addEventListener("change", atualizarOpcoesTimes);
     function openOptionsModal() { document.getElementById("optionsModal").style.display = "block"; }
     function closeOptionsModal() { document.getElementById("optionsModal").style.display = "none"; }
     function openModal(type) { closeOptionsModal(); document.getElementById("modal-" + type).style.display = "block"; }
     function closeModal(type) { document.getElementById("modal-" + type).style.display = "none"; }
   function toggleFilterMenu() {
   const menu = document.getElementById("filterMenu");
-  menu.style.display = menu.style.display === "flex" ? "none" : "flex";
+  const expanded = menu.style.display !== "flex";
+  menu.style.display = expanded ? "flex" : "none";
+  document.querySelector('[aria-controls="filterMenu"]').setAttribute('aria-expanded', String(expanded));
 }
 
 function toggleSubmenu(name) {
@@ -499,7 +446,11 @@ function toggleSubmenu(name) {
   allSubmenus.forEach(sm => {
     if (sm !== submenu) sm.style.display = "none";
   });
-  submenu.style.display = submenu.style.display === "block" ? "none" : "block";
+  const expanded = submenu.style.display !== "block";
+  submenu.style.display = expanded ? "block" : "none";
+  document.querySelectorAll('.filter-category').forEach(button => {
+    button.setAttribute('aria-expanded', String(expanded && button.getAttribute('aria-controls') === submenu.id));
+  });
 }
 
 </script>
