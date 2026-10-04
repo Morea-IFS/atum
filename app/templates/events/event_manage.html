@@ -568,7 +568,7 @@
                 <h2 class="step-section-title">Arquivos e Logos</h2>
 
                 <label for="logo">Logo:</label>
-                    <input type="file" name="logo" id="logo" accept=".png,.jpg,.jpeg" required>
+                <input type="file" name="logo" id="logo">
 
                 <label for="logo_badge">Logo crachá:</label>
                 <input type="file" name="logo_badge" id="logo_badge">
@@ -1022,15 +1022,7 @@
         }
     }
     function submitEventForm() {
-        const form = document.querySelector('#eventModal form');
-        // o campo obrigatório pode estar em outra etapa (oculta), então valide manualmente
-        const logo = document.getElementById('logo');
-        if (!logo.files.length) {
-            showModalStep(4);          // leva o usuário até a etapa do logo
-            logo.reportValidity();
-            return;
-        }
-        form.submit();
+        document.querySelector('#eventModal form').submit();
     }
 
     document.addEventListener("DOMContentLoaded", function () {

@@ -95,20 +95,14 @@ class EventFilterPersistenceMiddleware:
             and request.user.is_authenticated
             and (request.user.is_staff or getattr(request.user, 'type', None) == 0)
         ):
-            if EVENT_FILTER_PARAM in request.GET:
-                e = request.GET.get(EVENT_FILTER_PARAM)
-                if e:
-                    # escolheu um evento: guarda
-                    request.session[EVENT_FILTER_SESSION_KEY] = e
-                else:
-                    # veio ?e= vazio de propósito (ex.: "Sem evento"): limpa
-                    request.session.pop(EVENT_FILTER_SESSION_KEY, None)
+            e = request.GET.get(EVENT_FILTER_PARAM)
+            if e:
+                request.session[EVENT_FILTER_SESSION_KEY] = e
             else:
-                # parâmetro ausente: restaura o evento salvo
                 saved = request.session.get(EVENT_FILTER_SESSION_KEY)
                 if saved:
                     mutable_get = request.GET.copy()
                     mutable_get[EVENT_FILTER_PARAM] = saved
                     request.GET = mutable_get
-
+ 
         return self.get_response(request)
