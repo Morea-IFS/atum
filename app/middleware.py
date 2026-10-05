@@ -1,5 +1,6 @@
 from django.contrib.sessions.models import Session
 from django.utils import timezone
+from django.urls import reverse
 
 from .models import AccessLog
 
@@ -86,6 +87,9 @@ class EventFilterPersistenceMiddleware:
         self.get_response = get_response
  
     def __call__(self, request):
+        # Partidas exigem uma seleção explícita, inclusive após limpar o evento.
+        if request.path_info in (reverse('games'), reverse('matches_manage')):
+            return self.get_response(request)
         if (
             request.method == 'GET'
             and request.user.is_authenticated

@@ -4,7 +4,7 @@ from .models import Sexo_types, Settings_access, UserSession, Event_unit, Event_
 from django.db.models import Count, Q, Prefetch
 from .decorators import time_restriction
 from django.contrib import messages
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.templatetags.static import static
 from django.contrib.auth.models import User, Group, Permission
 from django.contrib.sessions.models import Session
@@ -12,6 +12,7 @@ from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth import login as auth_login, authenticate, logout, get_user_model
 from django.template.loader import render_to_string
 from .forms import Terms_UseForm
+from .match_management import MatchCreateForm, PhaseCreateForm, GroupCreateForm, accessible_events
 from datetime import date, datetime
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
@@ -205,7 +206,6 @@ def event_manage(request):
         })
 
     else:
-        print(request.POST, request.FILES)
         if 'event' in request.POST:
             event_id = request.POST.get('event')
             sport = request.POST.get('sport')
@@ -250,7 +250,6 @@ def event_manage(request):
                 
 
         elif 'event_unit' in request.POST:
-            print(request.POST)
             try:
                 event_unit = int(request.POST.get('event_unit'))
             except (ValueError, TypeError):
@@ -959,7 +958,6 @@ def team_manage(request):
 
     else:
         try:
-            print(request.POST)
             if 'add-team' in request.POST:
                 name = request.POST.get("name")
                 color = request.POST.get("color")
@@ -1465,36 +1463,21 @@ def add_player_team(request, id):
 @terms_accept_required
 @permission_required('app.view_match', raise_exception=True)
 def matches_manage(request):
-    try:
-        matchs = Match.objects.all().prefetch_related('teams__team')
-        sport = Sport_types.choices
-        context = [
-            {
-                'match': match,
-                'sport':sport,
-                'times': list(match.teams.all()),
-                
-            }
-            for match in matchs
-        ]
-        if request.method == "GET":
-            if not context:
-                print("Não há nenhuma partida cadastrada!")
-            return render(request, 'matches/matches_manage.html',{'context': context})
-        else:
-            match_id = request.POST.get('match_delete')
-            match_delete = Match.objects.get(id=match_id)
-            if match_delete.sport == 1:
-                if Volley_match.objects.filter(id=match_delete.volley_match.id):
-                    volley_match = Volley_match.objects.get(id=match_delete.volley_match.id)
-                    matches = Match.objects.filter(volley_match=volley_match.id)
-                    if len(matches) < 2:
-                        volley_match.delete()
-            match_delete.delete()
-            return redirect('matches_manage')
-    except Exception as e:
-        messages.error(request, f'Um erro inesperado aconteceu: {str(e)}')
-        return redirect('matches_manage')
+    if request.method == 'GET':
+        query = request.GET.urlencode()
+        return redirect(reverse('games') + ('?' + query if query else ''))
+    if not request.user.has_perm('app.delete_match'):
+        raise PermissionDenied
+    match = get_object_or_404(Match, pk=request.POST.get('match_delete'))
+    if not _acesso_match(request.user, match):
+        raise PermissionDenied
+    event_id = match.event_id
+    with transaction.atomic():
+        volley_id = match.volley_match_id
+        match.delete()
+        if volley_id and not Match.objects.filter(volley_match_id=volley_id).exists():
+            Volley_match.objects.filter(pk=volley_id).delete()
+    return redirect(f"{reverse('games')}?e={event_id}")
 
 @login_required(login_url="login")
 @terms_accept_required
@@ -1560,51 +1543,65 @@ def matches_edit(request, id):
 @login_required(login_url="login")
 @terms_accept_required
 def games(request):
+    events = accessible_events(request.user)
+    event_id = request.GET.get('e', '')
+    selected_event = None
+    if event_id:
+        if not event_id.isdecimal():
+            return HttpResponse('Evento inválido.', status=400)
+        selected_event = get_object_or_404(events, pk=event_id)
     if request.method == "GET":
+        if not request.user.has_perm('app.view_match'):
+            raise PermissionDenied
         context = {
-            'team': Team.objects.all(),
-            'sport': Sport_types.choices,
-            'events': Event.objects.all(),
+            'events': events, 'select_event': event_id, 'selected_event': selected_event,
+            'sport': Sport_types.choices, 'sexo': Sexo_types.choices,
             'phase_types': Phase_types.choices,
-            'sexo': Sexo_types.choices,
+            'event_sports': Event_sport.objects.filter(event=selected_event),
+            'teams': Team.objects.filter(event=selected_event),
+            'phases': Phase.objects.filter(event__event=selected_event),
+            'groups': Group_phase.objects.filter(phase__event__event=selected_event),
+            'filters': {key: request.GET.get(key, '') for key in ('sport', 'genre', 'team', 'q')},
         }
-
-        selected_event = None
-
-        if 'e' in request.GET and request.GET['e'] != '':
-            selected_event = Event.objects.get(id=request.GET['e'])
-            context['select_event'] = request.GET['e']
-            context['phases'] = Phase.objects.filter(event__event__id=request.GET['e']).order_by('name','event','sexo')
-            context['groups'] = Group_phase.objects.filter(phase__event__event__id=request.GET['e']).order_by('phase__name','phase__event','phase__sexo')
-            context['event_sports'] = Event_sport.objects.filter(event=selected_event)
-            context['teams'] = Team.objects.filter(event=selected_event)
-        elif request.user.event_user:
-            selected_event = request.user.event_user
-            context['event_sports'] = Event_sport.objects.filter(event=request.user.event_user)
-            context['phases'] = Phase.objects.filter(event__event=request.user.event_user).order_by('name','event','sexo')
-            context['groups'] = Group_phase.objects.filter(phase__event__event=request.user.event_user).order_by('phase__name','phase__event','phase__sexo')
-
+        matches = Match.objects.none()
         if selected_event:
-            matches = Match.objects.filter(event__id=selected_event.id).prefetch_related('teams__team').order_by('time_match')
-        else:
-            context['phases'] = []
-            context['groups'] = []
-            matches = Match.objects.all().prefetch_related('teams__team').order_by('time_match')
-
-        context['context'] = [
-            {
-                'match': match,
-                'times': list(match.teams.all()),
-                'points_a': Point.objects.filter(team_match=match.teams.first()).count(),
-                'points_b': Point.objects.filter(team_match=match.teams.last()).count(),
-            }
-            for match in matches
-        ]
-
+            matches = Match.objects.filter(event=selected_event)
+            for key, lookup, allowed in (
+                ('sport', 'sport', context['event_sports'].values_list('sport', flat=True)),
+                ('genre', 'sexo', [value for value, label in Sexo_types.choices]),
+                ('team', 'teams__team_id', context['teams'].values_list('pk', flat=True)),
+            ):
+                value = context['filters'][key]
+                if value:
+                    if not value.isdecimal() or int(value) not in allowed:
+                        matches = matches.none()
+                        messages.error(request, 'Filtro inválido para o evento selecionado.')
+                        break
+                    matches = matches.filter(**{lookup: int(value)})
+            query = context['filters']['q'].strip()
+            if query:
+                search = Q(teams__team__name__icontains=query) | Q(location__icontains=query)
+                if query.isdecimal():
+                    search |= Q(pk=int(query))
+                matches = matches.filter(search)
+        matches = matches.distinct().prefetch_related(
+            Prefetch('teams', queryset=Team_match.objects.select_related('team').annotate(
+                point_count=Count('point')).order_by('pk')),
+        ).order_by('time_match', 'pk')
+        context['context'] = []
+        for match in matches:
+            teams = list(match.teams.all())
+            context['context'].append({
+                'match': match, 'times': teams,
+                'points_a': teams[0].point_count if teams else 0,
+                'points_b': teams[1].point_count if len(teams) > 1 else 0,
+            })
         return render(request, 'games.html', context)
 
     elif 'change_match' in request.POST:
-        match = Match.objects.get(id=request.POST.get('change_match'))
+        if not request.user.has_perm('app.change_match'):
+            raise PermissionDenied
+        match = get_object_or_404(Match, pk=request.POST.get('change_match'), event__in=events)
 
         if Match.objects.filter(status=1, event=match.event).exists():
             messages.info(request, "Já existe uma partida em andamento. Finalize-a antes de iniciar outra.")
@@ -1620,149 +1617,48 @@ def games(request):
             messages.info(request, "A partida já foi finalizada.")
         return redirect('games')
 
-    # 2️⃣ Criar nova FASE
-    elif 'create_phase' in request.POST:
-        if not request.user.has_perm('app.add_phase'):
-            messages.error(request, "Você não tem permissão para criar fases.")
+    elif 'create_phase' in request.POST or 'create_group' in request.POST:
+        is_phase = 'create_phase' in request.POST
+        permission = 'app.add_phase' if is_phase else 'app.add_group_phase'
+        if not request.user.has_perm(permission):
+            raise PermissionDenied
+        if not selected_event:
+            messages.error(request, 'Selecione um evento antes de cadastrar fases ou grupos.')
             return redirect('games')
-        print(request.POST)
-        event_id = int(request.POST.get('event_sport'))
-        name = int(request.POST.get('name'))
-        sexo = int(request.POST.get('sexo_phase'))
-        if not event_id or not name or not sexo:
-            if not name == 0 and not name or not sexo == 0 and not sexo:
-                messages.error(request, "Dados insuficientes para criar a fase.")
-                return redirect('games')
+        form_class = PhaseCreateForm if is_phase else GroupCreateForm
+        form = form_class(request.POST, event=selected_event)
+        if form.is_valid():
+            _, created = form.save()
+            messages.success(request, 'Cadastro realizado com sucesso.' if created else 'Este cadastro já existe.')
+            return redirect(f"{reverse('games')}?e={selected_event.pk}")
+        return render(request, 'matches/create_errors.html', {
+            'form': form, 'select_event': selected_event.pk,
+            'action': 'create_phase' if is_phase else 'create_group',
+            'entity': 'fase' if is_phase else 'grupo',
+        }, status=400)
 
-        event_sport = Event_sport.objects.get(id=event_id)
-        print("event_S", event_sport)
-        if not event_sport:
-            messages.error(request, "Evento ou esporte não encontrado.")
+    elif 'create_match' in request.POST or 'time_a' in request.POST or 'time_b' in request.POST:
+        if not request.user.has_perm('app.add_match'):
+            raise PermissionDenied
+        if not selected_event:
+            messages.error(request, 'Selecione um evento antes de cadastrar a partida.')
             return redirect('games')
-
-        Phase.objects.create(event=event_sport, name=name, sexo=sexo)
-        messages.success(request, "Fase criada com sucesso!")
-        return redirect(f"{reverse('games')}?e={event_sport.event.id}")
-
-    # 3️⃣ Criar novo GRUPO
-    elif 'create_group' in request.POST:
-        if not request.user.has_perm('app.add_group_phase'):
-            messages.error(request, "Você não tem permissão para criar grupos.")
-            return redirect('games')
-
-        phase_id = request.POST.get('phase')
-        group_name = request.POST.get('group_name')
-
-        if not phase_id:
-            messages.error(request, "Preencha todos os campos para criar o grupo.")
-            return redirect('games')
-
-        phase = Phase.objects.get(id=phase_id)
-        Group_phase.objects.create(phase=phase, name=group_name)
-        messages.success(request, "Grupo criado com sucesso!")
-        return redirect(f"{reverse('games')}?e={phase.event.event.id}")
-
-    elif 'time_a' in request.POST and 'time_b' in request.POST:
-
-        # 4️⃣ Criar nova PARTIDA
-        event_sport = Event_sport.objects.get(id=int(request.POST.get('sport')))
-        sport_id = event_sport.sport
-        sexo = request.POST.get('sexo')
-        team_a_id = request.POST.get('time_a')
-        team_b_id = request.POST.get('time_b')
-        datetime = request.POST.get('datetime')
-        group_phase_id = request.POST.get('group')
-        location = request.POST.get('location')
-
-        if group_phase_id:
-            if sport_id != Group_phase.objects.get(id=group_phase_id).phase.event.sport:
-                messages.error(request, "O grupo precisa corresponder ao esporte.")
-                return redirect('games')
-
-        # Define o evento
-        if not request.user.event_user:
-            if 'e' in request.GET and request.GET['e'] != '':
-                event = Event.objects.get(id=request.GET['e'])
+        form = MatchCreateForm(request.POST, event=selected_event)
+        if form.is_valid():
+            match, created = form.save()
+            if created:
+                messages.success(request, f'Partida #{match.pk} cadastrada com sucesso!')
             else:
-                messages.error(request, "Selecione um evento válido.")
-                return redirect('games')
-        else:
-            event = request.user.event_user
-
-        # Validações
-        if team_a_id == team_b_id:
-            messages.error(request, "Você não pode criar uma partida com times iguais!")
-            return redirect('games')
-
-        team_a = Team.objects.get(id=team_a_id)
-        team_b = Team.objects.get(id=team_b_id)
-
-        team_sport_a = Team_sport.objects.filter(team=team_a, sport=event_sport, sexo=sexo).first()
-        team_sport_b = Team_sport.objects.filter(team=team_b, sport=event_sport, sexo=sexo).first()
-
-        if not team_sport_a or not team_sport_b:
-            messages.error(request, "Algum time não está cadastrado na modalidade selecionada!")
-            return redirect('games')
-        
-        if sport_id in [1, 2]:
-            volley_match = Volley_match.objects.create(status=0, event=event)
-            volley_match.save()
-            match, created = Match.objects.get_or_create(
-                sport=sport_id,
-                sexo=sexo,
-                time_match=datetime,
-                volley_match=volley_match,
-                event=event,
-                defaults={
-                    'group_phase_id': group_phase_id or None,
-                    'location': location or "",
-                }
-            )
-        else:
-            match, created = Match.objects.get_or_create(
-                sport=sport_id,
-                sexo=sexo,
-                time_match=datetime,
-                event=event,
-                defaults={
-                    'group_phase_id': group_phase_id or None,
-                    'location': location or "",
-                }
-            )
-
-        if created:
-            Team_match.objects.create(match=match, team=team_a)
-            Team_match.objects.create(match=match, team=team_b)
-            messages.success(request, "Partida cadastrada com sucesso!")
-        else:
-            messages.info(request, f"Essa partida já foi cadastrada! Identificação: #{match.id}")
-
-        team_matches = Team_match.objects.filter(match=match)
-        team_match_a = team_matches[0]
-        team_match_b = team_matches[1]
-  
-        players_match_a = Player_match.objects.filter(team_match=team_match_a)
-        players_match_b = Player_match.objects.filter(team_match=team_match_b)
-
-
-        player_team_sport_a = Player_team_sport.objects.filter(team_sport=team_sport_a)
-        player_team_sport_b = Player_team_sport.objects.filter(team_sport=team_sport_b)
-
-        for i in player_team_sport_a:
-            Player_match.objects.get_or_create(player=i.player, match=match, team_match=team_match_a)
-        for i in player_team_sport_b:
-            Player_match.objects.get_or_create(player=i.player, match=match, team_match=team_match_b)
-
-        for i in players_match_a:
-            if not Player_team_sport.objects.filter(player=i.player, team_sport=team_sport_a).exists():
-                i.delete()
-        for i in players_match_b:
-            if not Player_team_sport.objects.filter(player=i.player, team_sport=team_sport_b).exists():
-                i.delete()
+                messages.info(request, f'Este confronto já foi cadastrado: #{match.pk}.')
+            return redirect(f"{reverse('games')}?e={selected_event.pk}")
+        return render(request, 'matches/create_errors.html', {
+            'form': form, 'select_event': selected_event.pk,
+        }, status=400)
 
     elif 'sumula' in request.POST:
-        print(request.POST)
-        match = Match.objects.get(id=request.POST.get('sumula'))
+        if not request.user.has_perm('app.view_match'):
+            raise PermissionDenied
+        match = get_object_or_404(Match, pk=request.POST.get('sumula'), event__in=events)
         match_referee = Match_referee.objects.filter(match=match)
         team_match = Team_match.objects.filter(match=match)
         players_match_a = Player_match.objects.filter(team_match=team_match[0])
@@ -1859,46 +1755,49 @@ def authenticate_file(request):
         
     return render(request, 'public/authenticate.html', context)
 
+def _lookup_match_sport(request):
+    sport_id = request.GET.get('sport', '')
+    if not sport_id.isdecimal():
+        from django.http import Http404
+        raise Http404
+    return get_object_or_404(Event_sport, pk=sport_id, event__in=accessible_events(request.user))
+
+
 @login_required(login_url="login")
 def get_teams(request):
-    print("chegou")
-    sport_id = request.GET.get('sport')
-    sexo = request.GET.get('sexo')
-    print("acordaaa", sport_id, sexo)
-    # Exemplo: filtrando os times pelo esporte e sexo
-    teams = Team_sport.objects.filter(sport__id=sport_id, sexo=sexo)
-    data = {"teams": [{"id": t.team.id, "name": t.team.name} for t in teams]}
-    return JsonResponse(data)
+    sport = _lookup_match_sport(request)
+    sexo = request.GET.get('sexo', '')
+    if sexo not in ('0', '1', '2'):
+        return JsonResponse({'teams': []})
+    teams = Team.objects.filter(
+        event=sport.event, team_sport__event=sport.event,
+        team_sport__sport=sport, team_sport__sexo=sexo,
+    ).distinct().order_by('name', 'pk')
+    return JsonResponse({'teams': [{'id': t.pk, 'name': t.name} for t in teams]})
+
 
 @login_required(login_url="login")
 def get_groups(request):
-    sport_id = request.GET.get('sport')
-    groups = Group_phase.objects.filter(phase__event__id=sport_id).order_by('phase__name','phase__event','phase__sexo')
-    data = [
-        {
-            "id": g.id,
-            "name": g.name,
-            "phase_name": g.phase.get_name_display(),
-            "sexo": g.phase.get_sexo_display(),
-        }
-        for g in groups
-    ]
-    return JsonResponse({"groups": data})
+    sport = _lookup_match_sport(request)
+    groups = Group_phase.objects.filter(phase__event=sport).select_related('phase')
+    sexo = request.GET.get('sexo', '')
+    if sexo in ('0', '1', '2'):
+        groups = groups.filter(phase__sexo=sexo)
+    else:
+        groups = groups.none()
+    return JsonResponse({'groups': [{
+        'id': g.pk, 'name': g.name, 'phase_name': g.phase.get_name_display(),
+        'sexo': g.phase.get_sexo_display(),
+    } for g in groups.order_by('phase__name', 'pk')]})
+
 
 @login_required(login_url="login")
 def get_sexos(request):
-    sport_id = request.GET.get('sport')
-    esport = Event_sport.objects.get(id=sport_id)
-
-    sexos = []
-    if esport.masc:
-        sexos.append({"value": 0, "label": "Masculino"})
-    if esport.fem:
-        sexos.append({"value": 1, "label": "Feminino"})
-    if esport.mist:
-        sexos.append({"value": 2, "label": "Misto"})
-
-    return JsonResponse({"sexos": sexos})
+    sport = _lookup_match_sport(request)
+    sexos = [{'value': value, 'label': label} for value, label, enabled in (
+        (0, 'Masculino', sport.masc), (1, 'Feminino', sport.fem), (2, 'Misto', sport.mist),
+    ) if enabled]
+    return JsonResponse({'sexos': sexos})
 
 @login_required(login_url="login")
 @permission_required('app.view_match', raise_exception=True)
@@ -2043,7 +1942,6 @@ def match_settings(request, id_sport, id_match):
 
             return response
         elif 'location' in request.POST or 'add' in request.POST or 'winner' in request.POST:
-            print(request.POST)
             if request.POST.get('sport'): match.sport = int(request.POST.get('sport'))
             if request.POST.get('sexo'): match.sexo = int(request.POST.get('sexo'))
             if request.POST.get('status'): match.status = int(request.POST.get('status'))
@@ -2124,7 +2022,6 @@ def user_manage(request):
     if request.method == "GET":
         return render(request, 'settings/user_manage.html', context)
     else:
-        print(request.POST, request.FILES)
         if 'user_id' in request.POST:
             user = get_object_or_404(User, id=request.POST.get('user_id'))
             # type 1 só pode editar usuários do próprio evento
@@ -2133,11 +2030,9 @@ def user_manage(request):
                     messages.error(request, "Você não tem permissão para editar este usuário.")
                     return redirect('user_manage')
             print(user.username)
-            print(user.password)
             if request.POST.get('name'): user.username = str(request.POST.get('name'))
             if request.POST.get('password'):
                 senha = request.POST.get('password') 
-                print("trocando: ", senha)
                 user.set_password(senha)
             print("uaii")
             event_val = request.POST.get('event')
@@ -2177,7 +2072,6 @@ def user_manage(request):
                         user.photo.delete()
                 user.photo = request.FILES.get('photo')
             user.save()
-            print("Nova: ",user.password)
             messages.success(request, f"{user.username} do sistema atualizado com sucesso!")
         elif 'name' in request.POST:
             try:
@@ -2950,7 +2844,6 @@ def anexo_register(request):
             title_atack = request.POST.get('title_atack')
             file_atack = request.FILES.get('file_atack')
             print(file_atack)
-            print(request.POST, request.FILES)
             Attachments.objects.create(name=title_atack, user=request.user, file=file_atack)
             messages.success(request, "Parabéns, foi cadastrado com sucesso!")
             return redirect('anexo_manage')
@@ -3047,7 +2940,6 @@ def scoreboard(request, event_id):
         print("context")
         return render(request, 'scoreboard.html', context)
     else:
-        print(request.POST)
         if 'detailed' in request.POST:
             print("det")
             try:

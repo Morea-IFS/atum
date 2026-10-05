@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block head %}
+<title>Revisar cadastro</title>
+<link rel="stylesheet" href="{% static 'css/match.css' %}">
+{% endblock %}
+{% block content %}
+<section class="all-block match-page"><div class="block1">
+  <h1>Revisar cadastro: {{ entity|default:"partida" }}</h1>
+  <p>Corrija os campos indicados. O cadastro não foi realizado.</p>
+  <form class="match-error-form" method="post" action="{% url 'games' %}?e={{ select_event }}">
+    {% csrf_token %}
+    <input type="hidden" name="{{ action|default:'create_match' }}" value="1">
+    {{ form.as_p }}
+    <button class="match-primary" type="submit">Salvar cadastro</button>
+  </form>
+  <a class="match-back" href="{% url 'games' %}?e={{ select_event }}">Voltar às partidas do evento</a>
+</div></section>
+{% endblock %}
