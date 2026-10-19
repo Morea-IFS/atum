@@ -1684,8 +1684,7 @@ def games(request):
             if 'e' in request.GET and request.GET['e'] != '':
                 event = Event.objects.get(id=request.GET['e'])
             else:
-                messages.error(request, "Selecione um evento válido.")
-                return redirect('games')
+                event = event_sport.event
         else:
             event = request.user.event_user
 
