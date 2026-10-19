@@ -112,11 +112,19 @@ TEMPLATES = [
 WSGI_APPLICATION = 'interclasse.wsgi.application'
 ASGI_APPLICATION = 'interclasse.asgi.application'
 
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer', 
-    },
-}
+REDIS_URL = os.getenv("REDIS_URL")
+
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {'hosts': [REDIS_URL], 'prefix': 'atum'},
+        },
+    }
+else:
+    CHANNEL_LAYERS = {
+        'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'},
+    }
 
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases

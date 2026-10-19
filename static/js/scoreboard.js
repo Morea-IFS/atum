@@ -1,12 +1,17 @@
 const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
 const eventId = document.body.dataset.eventId;
-const socket = new WebSocket(protocol + window.location.host + "/ws/scoreboard/" + eventId + "/");
-console.log(protocol + window.location.host + "/ws/scoreboard/" + eventId + "/");
+let socket;
 
-socket.addEventListener('open', (event) => {
-    console.log('WebSocket connection opened:', event);
-    socket.send('Hello from client!');
-});
+function connect() {
+    socket = new WebSocket(protocol + window.location.host + "/ws/scoreboard/" + eventId + "/");
+    socket.addEventListener('open', () => console.log('WebSocket aberto'));
+    socket.onmessage = handleMessage;
+    socket.onclose = (e) => {
+        console.error('WebSocket fechado com código: ' + e.code);
+        if (futsalCycleInterval) clearInterval(futsalCycleInterval);
+        setTimeout(connect, 3000);
+    };
+}
 
 const timer = document.getElementById('timer');
 
@@ -16,7 +21,9 @@ let currentFutsalTeam = 'a'; // 'a' para casa, 'b' para visitante
 let futsalPlayersA = [];
 let futsalPlayersB = [];
 
-socket.onmessage = function(e) {
+connect();
+
+function handleMessage(e) {
     const data = JSON.parse(e.data);
 
     console.log("Mensagem recebida:", data);
@@ -190,7 +197,7 @@ socket.onmessage = function(e) {
                 if(match.point_a > match.point_b){
                     if (team_end) team_end.textContent = match.team_name_a;
                     if (photo_end) photo_end.src = match.photoA;
-                }else if(match.point_a > match.point_b){
+                }else if(match.point_b > match.point_a){
                     if (team_end) team_end.textContent = match.team_name_b;
                     if (photo_end) photo_end.src = match.photoB;                   
                 }
@@ -368,15 +375,6 @@ socket.onmessage = function(e) {
             console.warn("Tipo de mensagem não reconhecido:", data.type);
     }
 }
-
-socket.onclose = function(e) {
-    console.error('WebSocket fechado com código: ' + e.code);
-    
-    // Limpar intervalos ao fechar conexão
-    if (futsalCycleInterval) {
-        clearInterval(futsalCycleInterval);
-    }
-};
 
 let timeoutId;
 
