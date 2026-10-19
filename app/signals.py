@@ -15,6 +15,18 @@ from django.utils import timezone
 from datetime import datetime
 import pytz
 
+import logging
+logger = logging.getLogger(__name__)
+
+def safe_group_send(group, payload):
+    try:
+        layer = get_channel_layer()
+        if layer is None:
+            return
+        async_to_sync(layer.group_send)(group, payload)
+    except Exception:
+        logger.exception("Falha ao enviar para o grupo %s", group)
+
 User = get_user_model()
 default_photo_url = f"{settings.MEDIA_URL}defaults/team.png"
 
@@ -77,17 +89,18 @@ def serialize_occurrence(occurrence):
 @receiver([post_save, post_delete], sender=Team)
 def team_updated(sender, instance, using, **kwargs):
     if settings.DEBUG: print("hmm, mudanças nos team :)")
-    channel_layer = get_channel_layer()
     if Match.objects.filter(status=1, event=instance.event):
         match_data, match_public = send_scoreboard_team(instance)
-        async_to_sync(channel_layer.group_send)(
+        if match_data is None:
+            return
+        safe_group_send(
             f'scoreboard_{instance.event.id}',
             {
                 'type': 'team_new',
                 'match': match_data,
             }
         )
-        async_to_sync(channel_layer.group_send)(
+        safe_group_send(
             f'public_{instance.event.id}',
             {
                 'type': 'team_new',
@@ -104,7 +117,7 @@ def send_scoreboard_team(instance):
             match = Match.objects.get(status=1, event=event)
             team_matchs = Team_match.objects.filter(match=match)
             if len(team_matchs) < 2:
-                return None
+                return None, None
             if match.volley_match:
                 if (match.volley_match.sets_team_a + match.volley_match.sets_team_b) % 2 == 0:
                     team_match_a = team_matchs[0]
@@ -151,16 +164,17 @@ def send_scoreboard_team(instance):
 @receiver([post_save, post_delete], sender=Point)
 def point_changed(sender, instance, created=False, using=None, **kwargs):
     if settings.DEBUG: print("hmm, mudanças nos pontos :)")
-    channel_layer = get_channel_layer()
     match_data, match_public = send_scoreboard_point(instance, created)
-    async_to_sync(channel_layer.group_send)(
+    if match_data is None:
+        return
+    safe_group_send(
         f'scoreboard_{instance.team_match.match.event.id}',
         {
             'type': 'point_new',
             'match': match_data,
         }
     )
-    async_to_sync(channel_layer.group_send)(
+    safe_group_send(
         f'public_{instance.team_match.match.event.id}',
         {
             'type': 'point_new',
@@ -175,7 +189,7 @@ def send_scoreboard_point(instance, created):
         match = Match.objects.get(status=1, event=event)
         team_matchs = Team_match.objects.filter(match=match)
         if len(team_matchs) < 2:
-            return None
+            return None, None
         if match.volley_match:
             if (match.volley_match.sets_team_a + match.volley_match.sets_team_b) % 2 == 0:
                 team_match_a = team_matchs[0]
@@ -247,18 +261,18 @@ def send_scoreboard_point(instance, created):
 
 
 @receiver([post_save, post_delete], sender=Time_pause)
-def point_changed(sender, instance, using, **kwargs):
+def time_pause_changed(sender, instance, using, **kwargs):
     if settings.DEBUG: print("hmm, mudanças no (tempo) :)")
     channel_layer = get_channel_layer()
     match_data, match_public = send_scoreboard_time(instance)
-    async_to_sync(channel_layer.group_send)(
+    safe_group_send(
         f'scoreboard_{instance.match.event.id}',
         {
             'type': 'time_new',
             'match': match_data,
         }
     )
-    async_to_sync(channel_layer.group_send)(
+    safe_group_send(
         f'public_{instance.match.event.id}',
         {
             'type': 'time_new',
@@ -268,6 +282,7 @@ def point_changed(sender, instance, using, **kwargs):
 
 def send_scoreboard_time(instance):
     event = instance.match.event
+    match_data = {'seconds': 0, 'status': 0}
     if settings.DEBUG: print("eita, mudanças (tempo) sendo preparadas. :)")
     if Match.objects.filter(status=1, event=event):
         match = Match.objects.get(status=1, event=event)
@@ -289,7 +304,7 @@ def banner_changed(sender, instance, using, **kwargs):
     if settings.DEBUG: print("hmm, mudanças nas banner :)")
     channel_layer = get_channel_layer()
     match_data = send_scoreboard_banner(instance)
-    async_to_sync(channel_layer.group_send)(
+    safe_group_send(
         f'scoreboard_{instance.event.id}',
         {
             'type': 'banner_new',
@@ -313,16 +328,17 @@ def send_scoreboard_banner(instance):
 @receiver([post_save, post_delete], sender=Penalties)
 def penalties_updated(sender, instance, using, **kwargs):
     if settings.DEBUG: print("hmm, mudanças nas penalidades :)")
-    channel_layer = get_channel_layer()
     match_data, match_public = send_scoreboard_penalties(instance)
-    async_to_sync(channel_layer.group_send)(
+    if match_data is None:
+        return
+    safe_group_send(
         f'scoreboard_{instance.team_match.match.event.id}',
         {
             'type': 'penalties_new',
             'match': match_data,
         }
     )
-    async_to_sync(channel_layer.group_send)(
+    safe_group_send(
         f'public_{instance.team_match.match.event.id}',
         {
             'type': 'penalties_new',
@@ -337,7 +353,7 @@ def send_scoreboard_penalties(instance):
         match = Match.objects.get(status=1, event=event)
         team_matchs = Team_match.objects.filter(match=match)
         if len(team_matchs) < 2:
-            return None
+            return None, None
         if match.volley_match:
             if (match.volley_match.sets_team_a + match.volley_match.sets_team_b) % 2 == 0:
                 team_match_a = team_matchs[0]
@@ -385,7 +401,7 @@ def occurrence_updated(sender, instance, using, **kwargs):
     if settings.DEBUG: print("hmm, mudanças nas penalidades :)")
     channel_layer = get_channel_layer()
     match_public = send_scoreboard_occurrence(instance)
-    async_to_sync(channel_layer.group_send)(
+    safe_group_send(
         f'public_{instance.match.event.id}',
         {
             'type': 'occurrence_new',
@@ -423,16 +439,17 @@ def match_updated(sender, instance, using, **kwargs):
         channel_match(instance)
 
 def channel_match(instance):
-    channel_layer = get_channel_layer()
     match_data, match_public = send_scoreboard_match(instance)
-    async_to_sync(channel_layer.group_send)(
+    if match_data is None:
+        return
+    safe_group_send(
         f'scoreboard_{instance.event.id}',
         {
             'type': 'match_new',
             'match': match_data,
         }
     )
-    async_to_sync(channel_layer.group_send)(
+    safe_group_send(
         f'public_{instance.event.id}',
         {
             'type': 'match_new',
@@ -454,7 +471,7 @@ def send_scoreboard_match(instance):
     if match:
         team_matchs = Team_match.objects.filter(match=match)
         if len(team_matchs) < 2:
-            return None
+            return None, None
 
         if match.volley_match:
             if (match.volley_match.sets_team_a + match.volley_match.sets_team_b) % 2 == 0:

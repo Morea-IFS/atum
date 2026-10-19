@@ -1786,9 +1786,9 @@ def games(request):
             {
             'name': i.player.name,
             'number': i.player_number,
-            'card_r': Penalties.objects.filter(player=i.player, team_match=team_match[0], type_penalties=0).count(),
-            'card_y': Penalties.objects.filter(player=i.player, team_match=team_match[0], type_penalties=1).count(),
-            'point': Point.objects.filter(player=i.player, team_match=team_match[0]).count(),
+            'card_r': Penalties.objects.filter(player=i.player, team_match=team_match[1], type_penalties=0).count(),
+            'card_y': Penalties.objects.filter(player=i.player, team_match=team_match[1], type_penalties=1).count(),
+            'point': Point.objects.filter(player=i.player, team_match=team_match[1]).count(),
             }
             for i in players_match_b
         ]
@@ -1997,9 +1997,9 @@ def match_settings(request, id_sport, id_match):
                 {
                 'name': i.player.name,
                 'number': i.player_number,
-                'card_r': Penalties.objects.filter(player=i.player, team_match=team_match[0], type_penalties=0).count(),
-                'card_y': Penalties.objects.filter(player=i.player, team_match=team_match[0], type_penalties=1).count(),
-                'point': Point.objects.filter(player=i.player, team_match=team_match[0]).count(),
+                'card_r': Penalties.objects.filter(player=i.player, team_match=team_match[1], type_penalties=0).count(),
+                'card_y': Penalties.objects.filter(player=i.player, team_match=team_match[1], type_penalties=1).count(),
+                'point': Point.objects.filter(player=i.player, team_match=team_match[1]).count(),
                 }
                 for i in players_match_b
             ]
