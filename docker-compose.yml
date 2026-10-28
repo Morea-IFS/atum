@@ -1,5 +1,3 @@
-# Ambiente local: MySQL + Redis + app. Uso: docker compose up --build
-# As senhas abaixo são só para rodar na sua máquina; produção usa outras.
 services:
   db:
     image: mysql:8.4.3
@@ -9,7 +7,7 @@ services:
       MYSQL_PASSWORD: atum
       MYSQL_ROOT_PASSWORD: root
     ports:
-      - "3307:3306" # porta 3307 no seu computador, para não colidir com outro MySQL na 3306
+      - "3307:3306" 
     volumes:
       - db-data:/var/lib/mysql
     healthcheck:
