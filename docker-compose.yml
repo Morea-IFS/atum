@@ -1,0 +1,50 @@
+# Ambiente local: MySQL + Redis + app. Uso: docker compose up --build
+# As senhas abaixo são só para rodar na sua máquina; produção usa outras.
+services:
+  db:
+    image: mysql:8.4.3
+    environment:
+      MYSQL_DATABASE: atum
+      MYSQL_USER: atum
+      MYSQL_PASSWORD: atum
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3307:3306" # porta 3307 no seu computador, para não colidir com outro MySQL na 3306
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uatum", "-patum"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.4.1-alpine
+
+  web:
+    build: .
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-dev-local-inseguro}
+      DEBUG: ${DEBUG:-True}
+      HOST: localhost,127.0.0.1
+      ENVIRONMENT: DEV
+      DBTYPE: mysql
+      DBNAME: atum
+      DBUSER: atum
+      DBPASSWORD: atum
+      DBHOST: db
+      DBPORT: "3306"
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    volumes:
+      - media:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+volumes:
+  db-data:
+  media:
