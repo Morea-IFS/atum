@@ -1,10 +1,10 @@
 name: CI
 
-# Roda a cada push nas branches de trabalho e em todo pull request.
+# Roda a cada push na develop e na main e em todo pull request.
 # Não faz deploy (o deploy antigo continua no main-cicd.yml).
 on:
   push:
-    branches: [develop, main, "feature/**"]
+    branches: [develop, main]
   pull_request:
 
 permissions:
@@ -49,6 +49,8 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: python manage.py check
+      - name: Migrations em dia com os models
+        run: python manage.py makemigrations --check --dry-run
       - run: python manage.py migrate --noinput
       - run: python manage.py test
 
