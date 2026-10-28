@@ -1,8 +1,5 @@
 name: Release
 
-# Ao criar uma tag de versão (ex.: v0.1.0): testa o commit da tag, publica a imagem
-# no GHCR e cria a Release no GitHub. Não faz deploy: quem cuida do servidor puxa a imagem.
-# Tag com sufixo (ex.: v0.1.0-rc1) vira pre-release e não recebe a tag "latest".
 on:
   push:
     tags: ["v*"]
