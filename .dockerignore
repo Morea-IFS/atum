@@ -1,0 +1,19 @@
+.git
+.github
+.env
+.env.*
+venv
+env
+__pycache__
+*.pyc
+db.*
+staticfiles
+
+# Mídia enviada pelos usuários fica fora da imagem (vai num volume);
+# só as imagens padrão (defaults/) entram
+media/*
+!media/defaults
+
+Dockerfile
+docker-compose.yml
+.dockerignore
