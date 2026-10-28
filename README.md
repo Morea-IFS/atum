@@ -1,5 +1,3 @@
-![Alt](https://repobeats.axiom.co/api/embed/dcfa83d3af568ea516b919dec74544f641beacd5.svg "Repobeats analytics image")
-
 # atum
 
 Sistema dos jogos interclasse do IFS (JIIFS): cadastro de eventos, times, jogadores e partidas, placar ao vivo e geração de certificados, crachás e adesivos em PDF.
