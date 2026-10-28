@@ -65,7 +65,7 @@ docker compose down -v       # para e APAGA o banco e a mídia (volumes)
 # Qualquer comando do Django roda dentro do contêiner web:
 docker compose exec web python manage.py makemigrations
 docker compose exec web python manage.py migrate
-docker compose exec web python manage.py test
+docker compose exec -e DBUSER=root -e DBPASSWORD=root web python manage.py test   # ver seção 5
 docker compose exec web python manage.py shell
 ```
 
@@ -75,7 +75,18 @@ Para acessar o banco de fora (DBeaver, MySQL Workbench): host `127.0.0.1`, porta
 
 ## 5. Testes e CI
 
-O `manage.py test` ainda roda 0 testes (`app/tests.py` está vazio). O CI confere o resto.
+Os testes ficam em `app/tests.py`:
+
+| Grupo | O que confere |
+|---|---|
+| Páginas públicas | `/`, página do evento, chaveamento, placar, sobre e login abrem |
+| Login obrigatório | páginas internas mandam o visitante anônimo para `/login` |
+| Permissão | sem a permissão, o usuário volta para o painel; com ela, a página abre |
+| Bugs conhecidos | casos das issues #75 e #78, marcados com `@expectedFailure` |
+
+Resultado esperado: `OK (expected failures=5)`. Os testes com `@expectedFailure` são bugs que ainda existem: enquanto falharem, o CI fica verde. Quando alguém corrigir um deles, o teste passa a dar certo, aparece como "unexpected success" e o CI fica vermelho: aí é só apagar o `@expectedFailure` daquele teste.
+
+Testes das regras do jogo (partidas, placar, fases) ainda faltam: ver #76.
 
 `.github/workflows/ci.yml` roda em push na `develop` e na `main` e em todo pull request:
 
@@ -89,8 +100,10 @@ Para fazer o mesmo localmente antes de abrir o PR:
 ```bash
 docker compose exec web python manage.py check
 docker compose exec web python manage.py makemigrations --check --dry-run
-docker compose exec web python manage.py test
+docker compose exec -e DBUSER=root -e DBPASSWORD=root web python manage.py test
 ```
+
+O `test` cria e apaga um banco temporário (`test_atum`), e o usuário `atum` do compose não tem permissão para criar banco: por isso o comando usa o root do MySQL local. A saída vem misturada com `print()` do código; o que importa é a última linha (`OK` ou `FAILED`).
 
 Há também o `main-cicd.yml`, pipeline de deploy antigo mantido pela equipe. Ele só reage à `main`.
 
@@ -198,7 +211,7 @@ atum/
 │   ├── decorators.py        # controle de acesso (termos, janela de inscrição)
 │   ├── migrations/
 │   ├── templates/
-│   └── tests.py             # vazio por enquanto
+│   └── tests.py             # testes automatizados (seção 5)
 ├── interclasse/             # configuração do projeto Django (settings, urls, asgi)
 ├── static/                  # CSS, JS e imagens do site
 ├── media/defaults/          # imagens padrão (as enviadas pelos usuários ficam no volume)
