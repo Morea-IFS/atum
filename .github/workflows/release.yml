@@ -1,0 +1,102 @@
+name: Release
+
+# Ao criar uma tag de versão (ex.: v0.1.0): testa o commit da tag, publica a imagem
+# no GHCR e cria a Release no GitHub. Não faz deploy: quem cuida do servidor puxa a imagem.
+# Tag com sufixo (ex.: v0.1.0-rc1) vira pre-release e não recebe a tag "latest".
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # criar a Release
+  packages: write # publicar no GHCR
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/morea-ifs/atum
+  # Valores falsos só para os testes (a máquina é apagada no fim)
+  SECRET_KEY: ci-inseguro
+  DEBUG: "False"
+  HOST: localhost,127.0.0.1
+  ENVIRONMENT: PROD
+  DBTYPE: mysql
+  DBNAME: atum
+  DBUSER: root
+  DBPASSWORD: root_ci
+  DBHOST: 127.0.0.1
+  DBPORT: "3306"
+
+jobs:
+  # Mesmos passos do job test do ci.yml: nunca publicar sem testar o commit exato da tag
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4.3
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci
+          MYSQL_DATABASE: atum
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.5"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python manage.py check
+      - run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py migrate --noinput
+      - run: python manage.py test
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Versão a partir da tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"            # v0.1.0-rc1 -> 0.1.0-rc1
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          case "$version" in
+            *-*) echo "prerelease=true"  >> "$GITHUB_OUTPUT" ;;   # tem sufixo: rc, beta...
+            *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build e publicação da imagem
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # "latest" só para versão final; pre-release não deve virar a imagem padrão
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
+            ${{ steps.version.outputs.prerelease == 'false' && format('{0}:latest', env.IMAGE) || '' }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Criar Release no GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          extra=""
+          [ "$PRERELEASE" = "true" ] && extra="--prerelease"
+          gh release create "$GITHUB_REF_NAME" --generate-notes $extra \
+            --notes "Imagem: \`${IMAGE}:${{ steps.version.outputs.version }}\`"
