@@ -9,11 +9,11 @@ Sistema dos jogos interclasse do IFS (JIIFS): cadastro de eventos, times, jogado
 ## 1. Situação atual
 
 - CI roda a cada push na `develop` e na `main` e em todo pull request.
-- O deploy ainda não é automático: quem cuida do servidor puxa a imagem (seção 6) ou liga o deploy automático (seção 7).
+- O deploy ainda não é automático: quem cuida do servidor puxa a imagem (seção 7) ou liga o deploy automático (seção 7.4).
 
 ## 2. Dependências
 
-Só precisa de **Docker** com o plugin **Compose**. tudo roda em contêiner.
+Só precisa de **Docker** com o plugin **Compose**. Tudo roda em contêiner.
 
 - Linux: https://docs.docker.com/engine/install/ (depois, `sudo usermod -aG docker $USER` e abrir o terminal de novo)
 - Windows ou macOS: https://docs.docker.com/desktop/
