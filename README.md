@@ -1,5 +1,3 @@
-![Alt](https://repobeats.axiom.co/api/embed/dcfa83d3af568ea516b919dec74544f641beacd5.svg "Repobeats analytics image")
-
 # atum
 
 Sistema dos jogos interclasse do IFS (JIIFS): cadastro de eventos, times, jogadores e partidas, placar ao vivo e geração de certificados, crachás e adesivos em PDF.
@@ -10,13 +8,12 @@ Sistema dos jogos interclasse do IFS (JIIFS): cadastro de eventos, times, jogado
 
 ## 1. Situação atual
 
-- Última versão publicada: [`v0.1.0`](https://github.com/Morea-IFS/atum/releases) (imagem `ghcr.io/morea-ifs/atum:0.1.0` e `:latest`).
 - CI roda a cada push na `develop` e na `main` e em todo pull request.
 - O deploy ainda não é automático: quem cuida do servidor puxa a imagem (seção 6) ou liga o deploy automático (seção 7).
 
 ## 2. Dependências
 
-Só precisa de **Docker** com o plugin **Compose**. Nada de Python, MySQL ou Redis instalado na máquina: tudo roda em contêiner.
+Só precisa de **Docker** com o plugin **Compose**. tudo roda em contêiner.
 
 - Linux: https://docs.docker.com/engine/install/ (depois, `sudo usermod -aG docker $USER` e abrir o terminal de novo)
 - Windows ou macOS: https://docs.docker.com/desktop/
