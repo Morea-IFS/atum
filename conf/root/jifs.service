@@ -1,8 +1,7 @@
-#/etc/systemd/system/nameservice.service
+#/etc/systemd/system/jifs.service
 
 [Unit]
 Description=JIIFS daemon
-Requires=jiifs.socket
 After=network.target
 
 [Service]
@@ -14,8 +13,12 @@ Group=root
 # DynamicUser=yes
 # see http://0pointer.net/blog/dynamic-users-with-systemd.html
 RuntimeDirectory=gunicorn
-WorkingDirectory=/home/jiifs/jiifs-intercampi-2025
-ExecStart=/home/jiifs/jiifs-intercampi-2025/env/bin/gunicorn interclasse.asgi:application -k uvicorn.workers.UvicornWorker
+WorkingDirectory=/home/jifs/jifs-interclass
+ExecStart=/home/morea/jifs-interclass-2025/env/bin/gunicorn \
+    --workers 3 \
+    --log-level debug \
+    --bind unix:/home/morea/jifs-interclass/sockets/jifs.sock \
+    interclasse.wsgi:application
 ExecReload=/bin/kill -s HUP $MAINPID
 KillMode=mixed
 TimeoutStopSec=5
