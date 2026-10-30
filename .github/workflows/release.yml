@@ -7,6 +7,7 @@ on:
 permissions:
   contents: write # criar a Release
   packages: write # publicar no GHCR
+  id-token: write # login na AWS por OIDC (sem chave guardada no GitHub)
 
 concurrency:
   group: release
@@ -57,6 +58,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
       - name: Versão a partir da tag
@@ -97,3 +101,36 @@ jobs:
           [ "$PRERELEASE" = "true" ] && extra="--prerelease"
           gh release create "$GITHUB_REF_NAME" --generate-notes $extra \
             --notes "Imagem: \`${IMAGE}:${{ steps.version.outputs.version }}\`"
+
+  # Atualiza a EC2 pelo SSM (sem SSH). Só roda em versão final e quando as variáveis
+  # da AWS existem em Settings → Secrets and variables → Actions → Variables.
+  deploy:
+    needs: publish
+    if: needs.publish.outputs.prerelease == 'false' && vars.AWS_DEPLOY_ROLE != '' && vars.EC2_INSTANCE_ID != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERSION: ${{ needs.publish.outputs.version }}
+      INSTANCE: ${{ vars.EC2_INSTANCE_ID }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/atum' }}
+    steps:
+      - name: Credenciais da AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE }} # IAM role com ssm:SendCommand e ssm:GetCommandInvocation
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+      - name: Atualizar a EC2
+        run: |
+          # O docker-compose da EC2 usa image: ghcr.io/morea-ifs/atum:${ATUM_TAG:-latest}
+          cmd="cd $DEPLOY_PATH && export ATUM_TAG=$VERSION && docker compose pull && docker compose up -d"
+          id=$(aws ssm send-command --instance-ids "$INSTANCE" \
+            --document-name AWS-RunShellScript \
+            --comment "deploy atum $VERSION" \
+            --parameters "commands=[\"$cmd\"]" \
+            --query Command.CommandId --output text)
+          echo "Comando SSM: $id"
+          aws ssm wait command-executed --command-id "$id" --instance-id "$INSTANCE" || true
+          aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE" \
+            --query '{status: Status, saida: StandardOutputContent, erro: StandardErrorContent}' --output json
+          status=$(aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE" --query Status --output text)
+          [ "$status" = "Success" ] || { echo "::error::Deploy na EC2 terminou com status $status"; exit 1; }
