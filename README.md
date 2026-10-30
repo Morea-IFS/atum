@@ -4,12 +4,12 @@ Sistema dos jogos interclasse do IFS (JIIFS): cadastro de eventos, times, jogado
 
 - Django 5.1 + Channels (websocket para o placar), Python 3.11.5
 - MySQL 8 e Redis 7
-- Roda em Docker. A cada tag `v*`, o GitHub publica a imagem em `ghcr.io/morea-ifs/atum` e cria uma Release.
+- Roda em Docker. A cada tag `v*`, o GitHub publica a imagem em `ghcr.io/morea-ifs/atum`, cria uma Release e, se a AWS estiver configurada, atualiza o servidor (EC2).
 
 ## 1. Situação atual
 
 - CI roda a cada push na `develop` e na `main` e em todo pull request.
-- O deploy ainda não é automático: quem cuida do servidor puxa a imagem (seção 7) ou liga o deploy automático (seção 7.4).
+- O deploy automático na EC2 já está no `release.yml`, mas só roda depois que a AWS for configurada (seção 7.4). Até lá, a tag publica a imagem e a Release, e o job de deploy é pulado.
 
 ## 2. Dependências
 
@@ -121,15 +121,16 @@ O `.github/workflows/release.yml` então:
 
 1. roda os mesmos testes do CI no commit da tag;
 2. monta a imagem e publica `ghcr.io/morea-ifs/atum:0.1.1` e `ghcr.io/morea-ifs/atum:latest`;
-3. cria a Release em https://github.com/Morea-IFS/atum/releases com as notas geradas dos PRs.
+3. cria a Release em https://github.com/Morea-IFS/atum/releases com as notas geradas dos PRs;
+4. atualiza a EC2 para a versão nova (job `deploy`, só quando a AWS está configurada, ver 7.4).
 
 Regras:
 
 - Numeração (SemVer): `v0.1.1` correção, `v0.2.0` funcionalidade nova, `v1.0.0` quando a equipe considerar estável.
-- Tag com sufixo (`v0.2.0-rc1`) vira **pre-release** e **não** recebe `latest`. Use para testar antes da versão final.
+- Tag com sufixo (`v0.2.0-rc1`) vira **pre-release**, **não** recebe `latest` e **não** faz deploy. Use para testar antes da versão final.
 - Uma tag não se reaproveita. Se o release falhar, corrija e crie a próxima (`-rc2`, `v0.1.2`).
 - Acompanhe em https://github.com/Morea-IFS/atum/actions (workflow "Release").
-- Nenhum secret precisa ser cadastrado: o workflow usa o `GITHUB_TOKEN` automático.
+- Para publicar a imagem e a Release não é preciso cadastrar nada: o workflow usa o `GITHUB_TOKEN` automático. O deploy precisa das variáveis da seção 7.4.
 
 ## 7. Rodar a imagem publicada (deploy)
 
@@ -180,22 +181,42 @@ docker run -d --name atum -p 8000:8000 \
 
 Para atualizar: troque a versão da imagem e reinicie. Para voltar atrás: aponte para a versão anterior, que continua no GHCR.
 
-### 7.4 Deploy automático na AWS (opcional)
+### 7.4 Deploy automático na EC2
 
-Hoje o `release.yml` termina ao criar a Release. Para a AWS atualizar sozinha a cada tag, acrescente um passo no fim do job `publish`. Exemplo para ECS:
+O job `deploy` do `release.yml` atualiza a EC2 a cada tag de versão final. Ele usa o **SSM** da AWS (não abre SSH) e entra na AWS por **OIDC** (nenhuma chave da AWS fica guardada no GitHub). Na EC2, ele roda:
 
-```yaml
-      - name: Deploy no ECS
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE }}   # IAM role com permissão de ecs:UpdateService
-          aws-region: us-east-1
-      - run: >
-          aws ecs update-service --cluster atum --service atum
-          --force-new-deployment
+```bash
+cd /opt/atum && export ATUM_TAG=<versão> && docker compose pull && docker compose up -d
 ```
 
-O que isso exige do lado da AWS: um cluster e um serviço ECS já apontando para `ghcr.io/morea-ifs/atum:latest` (ou uma task definition atualizada pelo passo), uma IAM role que o GitHub possa assumir (OIDC) e o segredo `AWS_DEPLOY_ROLE` cadastrado em *Settings → Secrets* do repositório. Para EKS ou EC2 a ideia é a mesma: um passo final que manda o serviço puxar a imagem nova.
+e espera o resultado: se o comando falhar na EC2, o job fica vermelho.
+
+O job só roda quando estas **variáveis** existem no repositório, em *Settings → Secrets and variables → Actions → Variables* (não são segredos: são identificadores):
+
+| Variável | Valor | Obrigatória |
+|---|---|---|
+| `AWS_DEPLOY_ROLE` | ARN da IAM role que o GitHub assume (ex.: `arn:aws:iam::123456789012:role/atum-deploy`) | sim |
+| `EC2_INSTANCE_ID` | id da instância (ex.: `i-0abc123...`) | sim |
+| `AWS_REGION` | região da instância | não (padrão `us-east-1`) |
+| `DEPLOY_PATH` | pasta do compose na EC2 | não (padrão `/opt/atum`) |
+
+Sem `AWS_DEPLOY_ROLE` ou `EC2_INSTANCE_ID`, o job `deploy` é pulado e o release termina verde.
+
+O que precisa existir do lado da AWS (feito por quem cuida da conta):
+
+1. **Provedor OIDC do GitHub** no IAM (`token.actions.githubusercontent.com`, audiência `sts.amazonaws.com`).
+2. **IAM role** com relação de confiança nesse provedor, limitada ao repositório e às tags (`repo:Morea-IFS/atum:ref:refs/tags/v*`), e permissão `ssm:SendCommand` (documento `AWS-RunShellScript` e a instância) e `ssm:GetCommandInvocation`.
+3. **EC2** com Docker + plugin Compose e o **SSM Agent** ativo, com um perfil de instância que tenha a política `AmazonSSMManagedInstanceCore`.
+4. Em `/opt/atum` na EC2: o `docker-compose.yml` deste repositório com o serviço `web` usando a imagem no lugar de `build: .`, e as variáveis de produção (seção 7.2) no lugar das de desenvolvimento:
+
+   ```yaml
+       image: ghcr.io/morea-ifs/atum:${ATUM_TAG:-latest}
+   ```
+
+   Na frente, um proxy com HTTPS que aceite **websocket** (seção 7.2).
+5. Se o pacote do GHCR estiver privado: `docker login ghcr.io` na EC2 com um token de escopo `read:packages`.
+
+Para voltar atrás: na EC2, `cd /opt/atum && export ATUM_TAG=<versão anterior> && docker compose up -d`.
 
 ## 8. Estrutura do projeto
 
@@ -220,7 +241,7 @@ atum/
 ├── conf/                    # arquivos do deploy antigo (systemd)
 ├── .github/workflows/
 │   ├── ci.yml               # testes e smoke test da imagem
-│   ├── release.yml          # tag v* → imagem no GHCR + Release
+│   ├── release.yml          # tag v* → imagem no GHCR + Release + deploy na EC2
 │   └── main-cicd.yml        # pipeline antigo da equipe
 ├── Dockerfile
 ├── docker-compose.yml       # ambiente local: web + MySQL + Redis
